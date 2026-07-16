@@ -77,8 +77,37 @@ class DPMQ_Queue {
 
 		as_enqueue_async_action( 'dpmq_send_email', array( 'email_id' => (int) $id ), 'dpmq' );
 
+		// Kick the background runner as soon as the response is sent. Adding
+		// the same callback twice is a no-op, so this is safe per-request.
+		add_action( 'shutdown', array( __CLASS__, 'dispatch_async_runner' ), 100 );
+
 		// The caller sees success; actual delivery is logged on our admin page.
 		return true;
+	}
+
+	/**
+	 * Dispatch Action Scheduler's async loopback runner immediately.
+	 *
+	 * Action Scheduler only self-dispatches this runner from admin screens
+	 * (is_admin() gate in ActionScheduler_QueueRunner::maybe_dispatch_async_request()).
+	 * Emails queued during front-end and REST requests — i.e. every form
+	 * submission — would otherwise wait for WP-Cron, which can be minutes on
+	 * a well-cached, low-traffic site. So after queueing we dispatch the same
+	 * runner ourselves once the response has been sent to the visitor.
+	 *
+	 * maybe_dispatch() re-checks that actions are actually due and that no
+	 * runner is already at the concurrency limit, so bursts are safe.
+	 */
+	public static function dispatch_async_runner() {
+		if ( ! class_exists( 'ActionScheduler' ) || ! class_exists( 'ActionScheduler_AsyncRequest_QueueRunner' ) ) {
+			return;
+		}
+		try {
+			$runner = new ActionScheduler_AsyncRequest_QueueRunner( ActionScheduler::store() );
+			$runner->maybe_dispatch();
+		} catch ( Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			// Never let a dispatch problem break the request; WP-Cron remains the fallback.
+		}
 	}
 
 	/**

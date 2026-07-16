@@ -4,7 +4,7 @@ Tags: email, queue, background, performance, wp_mail
 Requires at least: 6.5
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,8 +22,12 @@ Sending email during a page request is slow: connecting to an SMTP server can ad
 * Automatic retries with backoff (3 attempts), then the email is marked failed.
 * Email log under Tools → Mail Queue: see queued, sent, and failed emails; re-send or delete any of them.
 * Password-reset emails are sent synchronously by default so users are never locked out if the background runner breaks.
-* Health warnings when the queue is stuck or another plugin has replaced `wp_mail()` entirely.
+* Instant background delivery even on cached, low-traffic sites: the async runner is dispatched right after each queued email, without waiting for WP-Cron.
+* A watchdog recovers crashed or lost sends every 5 minutes; an atomic claim guarantees an email can never be delivered twice.
+* "Send test email" button and a delivery-speed report on the admin page, so verifying a new site takes one click.
+* Health warnings when the queue is stuck, delivery is slow, or another plugin has replaced `wp_mail()` entirely.
 * Sent emails are purged after 7 days (configurable); failed emails after 30 days.
+* Deactivating the plugin delivers any still-queued emails synchronously and cleans up its scheduled actions.
 
 **Developer filters**
 
@@ -49,6 +53,15 @@ Action Scheduler triggers an async loopback request so sends normally happen wit
 Queued and logged emails are stored in a custom database table and purged automatically (sent after 7 days by default, failed after 30). Attachments are copied to a protected uploads subdirectory and removed with the log entry.
 
 == Changelog ==
+
+= 0.2.0 =
+* Fixed: emails queued from front-end and REST requests (i.e. every form submission) waited for WP-Cron — minutes on cached sites. The async runner is now dispatched immediately after queueing.
+* Added: watchdog action (every 5 minutes) that re-queues emails whose send crashed or whose scheduled action was lost, and fails out emails with exhausted attempts.
+* Added: atomic row claim — a duplicate scheduled action can no longer cause a double-send.
+* Added: "Send test email" button on Tools → Mail Queue.
+* Added: delivery-speed report and a slow-delivery warning with server-cron setup instructions.
+* Improved: timestamps display in the site's timezone with a relative hint, plus a new Delivery column showing queue → send duration.
+* Improved: deactivation now sends any unsent emails synchronously and removes the plugin's scheduled actions.
 
 = 0.1.0 =
 * Initial release.

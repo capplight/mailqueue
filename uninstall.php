@@ -11,9 +11,10 @@ global $wpdb;
 
 // Cancel our scheduled actions if Action Scheduler is available
 // (e.g. via WooCommerce); otherwise they fail harmlessly as orphans.
+// Empty hook + group cancels everything in the 'dpmq' group
+// (dpmq_send_email, dpmq_purge, dpmq_watchdog).
 if ( function_exists( 'as_unschedule_all_actions' ) ) {
-	as_unschedule_all_actions( 'dpmq_send_email', array(), 'dpmq' );
-	as_unschedule_all_actions( 'dpmq_purge', array(), 'dpmq' );
+	as_unschedule_all_actions( '', array(), 'dpmq' );
 }
 
 // Drop the queue table.

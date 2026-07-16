@@ -41,8 +41,9 @@ class DPMQ_List_Table extends WP_List_Table {
 			'recipients' => __( 'To', 'done-purple-mail-queue' ),
 			'status'     => __( 'Status', 'done-purple-mail-queue' ),
 			'attempts'   => __( 'Attempts', 'done-purple-mail-queue' ),
-			'created_at' => __( 'Queued (UTC)', 'done-purple-mail-queue' ),
-			'sent_at'    => __( 'Sent (UTC)', 'done-purple-mail-queue' ),
+			'created_at' => __( 'Queued', 'done-purple-mail-queue' ),
+			'sent_at'    => __( 'Sent', 'done-purple-mail-queue' ),
+			'took'       => __( 'Delivery', 'done-purple-mail-queue' ),
 		);
 	}
 
@@ -195,6 +196,65 @@ class DPMQ_List_Table extends WP_List_Table {
 		);
 		$color  = isset( $colors[ $item->status ] ) ? $colors[ $item->status ] : '#646970';
 		return sprintf( '<span style="color:%s;font-weight:600;">%s</span>', esc_attr( $color ), esc_html( ucfirst( $item->status ) ) );
+	}
+
+	/**
+	 * Queued time, in the site's timezone.
+	 *
+	 * @param object $item Row.
+	 * @return string
+	 */
+	public function column_created_at( $item ) {
+		return $this->format_gmt( $item->created_at );
+	}
+
+	/**
+	 * Sent time, in the site's timezone.
+	 *
+	 * @param object $item Row.
+	 * @return string
+	 */
+	public function column_sent_at( $item ) {
+		return $this->format_gmt( $item->sent_at );
+	}
+
+	/**
+	 * Queue → send duration.
+	 *
+	 * @param object $item Row.
+	 * @return string
+	 */
+	public function column_took( $item ) {
+		if ( ! $item->sent_at || 'sent' !== $item->status ) {
+			return '—';
+		}
+		$seconds = strtotime( $item->sent_at . ' UTC' ) - strtotime( $item->created_at . ' UTC' );
+		if ( $seconds < 0 ) {
+			return '—';
+		}
+		if ( $seconds < MINUTE_IN_SECONDS ) {
+			/* translators: %d: seconds */
+			return esc_html( sprintf( __( '%ds', 'done-purple-mail-queue' ), $seconds ) );
+		}
+		/* translators: 1: minutes, 2: seconds */
+		return esc_html( sprintf( __( '%1$dm %2$ds', 'done-purple-mail-queue' ), (int) floor( $seconds / MINUTE_IN_SECONDS ), $seconds % MINUTE_IN_SECONDS ) );
+	}
+
+	/**
+	 * Render a stored UTC datetime in the site's timezone, with an "ago" hint.
+	 *
+	 * @param string|null $gmt_datetime MySQL datetime in UTC.
+	 * @return string
+	 */
+	private function format_gmt( $gmt_datetime ) {
+		if ( ! $gmt_datetime ) {
+			return '—';
+		}
+		$timestamp = strtotime( $gmt_datetime . ' UTC' );
+		$local     = get_date_from_gmt( $gmt_datetime, 'M j, Y H:i:s' );
+		/* translators: %s: human-readable time difference */
+		$ago = sprintf( __( '%s ago', 'done-purple-mail-queue' ), human_time_diff( $timestamp ) );
+		return esc_html( $local ) . '<br /><span style="color:#646970;">' . esc_html( $ago ) . '</span>';
 	}
 
 	/**

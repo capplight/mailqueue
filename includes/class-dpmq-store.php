@@ -130,6 +130,30 @@ class DPMQ_Store {
 	}
 
 	/**
+	 * Atomically claim a row for sending.
+	 *
+	 * The status check and the flip to 'sending' happen in one UPDATE, so if
+	 * two runners ever pick up the same email (duplicate scheduled retry,
+	 * watchdog overlap), only one can win — the loser sends nothing.
+	 *
+	 * @param int $id       Row ID.
+	 * @param int $attempts New attempts value.
+	 * @return bool Whether this caller won the claim.
+	 */
+	public static function claim( $id, $attempts ) {
+		global $wpdb;
+		$table = self::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (bool) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET status = 'sending', attempts = %d WHERE id = %d AND status IN ('queued','retrying')",
+				(int) $attempts,
+				(int) $id
+			)
+		);
+	}
+
+	/**
 	 * Delete a row and its copied attachments.
 	 *
 	 * @param int $id Row ID.
@@ -216,6 +240,61 @@ class DPMQ_Store {
 				"SELECT COUNT(*) FROM {$table} WHERE status IN ('queued','retrying','sending') AND created_at < %s",
 				$cutoff
 			)
+		);
+	}
+
+	/**
+	 * Unsent rows older than $minutes (the watchdog's work list).
+	 *
+	 * @param int $minutes Age threshold; 0 returns every unsent row.
+	 * @param int $limit   Max rows.
+	 * @return object[]
+	 */
+	public static function stale( $minutes, $limit = 50 ) {
+		global $wpdb;
+		$table  = self::table();
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - ( $minutes * MINUTE_IN_SECONDS ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (array) $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$table}
+				 WHERE status IN ('queued','retrying','sending') AND created_at <= %s
+				 ORDER BY id ASC LIMIT %d",
+				$cutoff,
+				(int) $limit
+			)
+		);
+	}
+
+	/**
+	 * Average and worst queued→sent delay over the most recent sent emails.
+	 *
+	 * @param int $limit Sample size.
+	 * @return array|null {avg: float, max: int, n: int} in seconds, or null if no data.
+	 */
+	public static function recent_lag( $limit = 10 ) {
+		global $wpdb;
+		$table = self::table();
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT AVG(lag_seconds) AS avg_lag, MAX(lag_seconds) AS max_lag, COUNT(*) AS n FROM (
+					SELECT TIMESTAMPDIFF(SECOND, created_at, sent_at) AS lag_seconds
+					FROM {$table}
+					WHERE status = 'sent' AND sent_at IS NOT NULL
+					ORDER BY id DESC LIMIT %d
+				 ) AS recent",
+				(int) $limit
+			)
+		);
+		// phpcs:enable
+		if ( ! $row || ! (int) $row->n ) {
+			return null;
+		}
+		return array(
+			'avg' => (float) $row->avg_lag,
+			'max' => (int) $row->max_lag,
+			'n'   => (int) $row->n,
 		);
 	}
 

@@ -78,6 +78,30 @@ class DPMQ_Admin {
 
 		require_once DPMQ_PLUGIN_DIR . 'includes/class-dpmq-list-table.php';
 
+		// "Send test email" button.
+		if ( isset( $_POST['dpmq_test_email'] ) ) {
+			check_admin_referer( 'dpmq_test_email' );
+			$to = isset( $_POST['dpmq_test_to'] ) ? sanitize_email( wp_unslash( $_POST['dpmq_test_to'] ) ) : '';
+			if ( ! $to ) {
+				$to = wp_get_current_user()->user_email;
+			}
+			wp_mail(
+				$to,
+				sprintf(
+					/* translators: %s: site host name */
+					__( 'Mail Queue test from %s', 'done-purple-mail-queue' ),
+					wp_parse_url( home_url(), PHP_URL_HOST )
+				),
+				sprintf(
+					/* translators: %s: date/time */
+					__( "This is a test email queued at %s (site time).\n\nIf you are reading this, background delivery works.", 'done-purple-mail-queue' ),
+					current_time( 'mysql' )
+				)
+			);
+			wp_safe_redirect( admin_url( 'tools.php?page=dpmq&dpmq_notice=test-queued' ) );
+			exit;
+		}
+
 		// Single row actions (GET links with per-row nonce).
 		if ( isset( $_GET['action'], $_GET['email'], $_GET['_wpnonce'] ) && ! is_array( $_GET['email'] ) ) {
 			$id     = (int) $_GET['email'];
@@ -149,6 +173,14 @@ class DPMQ_Admin {
 				<?php submit_button( __( 'Save Settings', 'done-purple-mail-queue' ), 'primary', 'submit', false ); ?>
 			</form>
 
+			<form method="post" style="background:#fff;border:1px solid #c3c4c7;padding:1em 1.5em;margin:1em 0;">
+				<?php wp_nonce_field( 'dpmq_test_email' ); ?>
+				<h2 style="margin-top:0;"><?php esc_html_e( 'Send a test email', 'done-purple-mail-queue' ); ?></h2>
+				<p style="margin:0.5em 0 1em;"><?php esc_html_e( 'Goes through the normal queue, so you can verify interception, background delivery, and delivery speed in one shot.', 'done-purple-mail-queue' ); ?></p>
+				<input type="email" name="dpmq_test_to" value="<?php echo esc_attr( wp_get_current_user()->user_email ); ?>" class="regular-text" />
+				<?php submit_button( __( 'Send Test Email', 'done-purple-mail-queue' ), 'secondary', 'dpmq_test_email', false ); ?>
+			</form>
+
 			<form method="post">
 				<?php
 				$table->views();
@@ -175,6 +207,8 @@ class DPMQ_Admin {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Email queued for sending.', 'done-purple-mail-queue' ) . '</p></div>';
 		} elseif ( 'deleted' === $notice ) {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Deleted.', 'done-purple-mail-queue' ) . '</p></div>';
+		} elseif ( 'test-queued' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Test email queued — it should appear as Sent below within a few seconds. Refresh this page to watch it go out, then check the inbox.', 'done-purple-mail-queue' ) . '</p></div>';
 		}
 	}
 
@@ -222,6 +256,40 @@ class DPMQ_Admin {
 			printf(
 				'<div class="notice notice-error"><p>%s</p></div>',
 				esc_html__( 'Action Scheduler is not available; emails are being sent synchronously.', 'done-purple-mail-queue' )
+			);
+		}
+
+		// 4. Delivery lag: emails go out, but slowly — the async loopback
+		// request probably fails on this host and WP-Cron is the only runner.
+		$lag = DPMQ_Store::recent_lag( 10 );
+		if ( $lag && $lag['avg'] > 90 ) {
+			printf(
+				'<div class="notice notice-warning"><p><strong>%s</strong> %s</p><p>%s<br /><code>%s</code></p></div>',
+				esc_html(
+					sprintf(
+						/* translators: 1: number of emails, 2: average seconds, 3: worst seconds */
+						__( 'Delivery is slow: the last %1$d emails took %2$ds on average (worst: %3$ds) to send.', 'done-purple-mail-queue' ),
+						$lag['n'],
+						(int) round( $lag['avg'] ),
+						$lag['max']
+					)
+				),
+				esc_html__( 'Loopback requests may be blocked on this host (see Site Health), leaving delivery to WP-Cron — unreliable on cached, low-traffic sites. A real server cron job fixes this:', 'done-purple-mail-queue' ),
+				esc_html__( 'Add to wp-config.php: define( \'DISABLE_WP_CRON\', true ); and create a server cron job running every minute:', 'done-purple-mail-queue' ),
+				esc_html( sprintf( 'wget -q -O /dev/null "%s"', site_url( 'wp-cron.php?doing_wp_cron' ) ) )
+			);
+		} elseif ( $lag ) {
+			printf(
+				'<div class="notice notice-info"><p>%s</p></div>',
+				esc_html(
+					sprintf(
+						/* translators: 1: number of emails, 2: average seconds, 3: worst seconds */
+						__( 'Delivery speed: the last %1$d emails took %2$ds on average (worst: %3$ds) from queue to send.', 'done-purple-mail-queue' ),
+						$lag['n'],
+						(int) round( $lag['avg'] ),
+						$lag['max']
+					)
+				)
 			);
 		}
 	}

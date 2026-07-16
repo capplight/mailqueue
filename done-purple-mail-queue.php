@@ -3,7 +3,7 @@
  * Plugin Name:       Done Purple Mail Queue
  * Plugin URI:        https://donepurple.com/
  * Description:       Sends WordPress emails in the background via Action Scheduler. Form submissions respond instantly while emails still go out within seconds.
- * Version:           0.1.0
+ * Version:           0.2.0
  * Author:            Done Purple
  * Author URI:        https://donepurple.com/
  * License:           GPL-2.0-or-later
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DPMQ_VERSION', '0.1.0' );
+define( 'DPMQ_VERSION', '0.2.0' );
 define( 'DPMQ_PLUGIN_FILE', __FILE__ );
 define( 'DPMQ_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -31,6 +31,7 @@ require_once DPMQ_PLUGIN_DIR . 'includes/class-dpmq-queue.php';
 require_once DPMQ_PLUGIN_DIR . 'includes/class-dpmq-sender.php';
 
 register_activation_hook( __FILE__, array( 'DPMQ_Store', 'install' ) );
+register_deactivation_hook( __FILE__, array( 'DPMQ_Sender', 'deactivate' ) );
 
 add_action( 'plugins_loaded', 'dpmq_init' );
 
